@@ -1,0 +1,8 @@
+{application, fast_xml_rust, [
+  {description, "Rust-backed XML streaming NIF"},
+  {vsn, "0.1.0"},
+  {licenses, ["Apache-2.0"]},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel, stdlib]}
+]}.

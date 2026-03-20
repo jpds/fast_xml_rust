@@ -1,0 +1,18 @@
+[package]
+name = "fxml_stream_rust"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Rust NIF XML streaming parser for ejabberd"
+
+[lib]
+name = "fxml_stream_rust"
+crate-type = ["cdylib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[dependencies]
+rustler = "0.37"
+quick-xml = "0.39.2"
