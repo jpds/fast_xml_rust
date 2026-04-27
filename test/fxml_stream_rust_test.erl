@@ -15,6 +15,9 @@ all() ->
         fun test_stream_restart/0,
         fun test_stream_chunked/0,
         fun test_stream_max_size/0,
+        fun test_stream_max_elements/0,
+        fun test_stream_max_elements_tuple_arg/0,
+        fun test_stream_change_limits/0,
         fun test_stream_close/0,
         fun test_stream_change_callback_pid/0,
         fun test_stream_end/0,
@@ -169,6 +172,47 @@ test_stream_max_size() ->
     BigStanza = <<"<message><body>This is a very long message that exceeds the limit</body></message>">>,
     _S2 = fxml_stream_rust:parse(S1, BigStanza),
     {xmlstreamerror, <<"XML stanza is too big">>} = receive_msg(),
+    ok.
+
+test_stream_max_elements() ->
+    %% Upstream semantics: max_elements=N rejects on the Nth element
+    %% (check is `count < max_elements` after increment). So max=3 allows 2.
+    S0 = fxml_stream_rust:new(self(), infinity, [no_gen_server]),
+    S1 = fxml_stream_rust:parse(S0, <<"<root>">>),
+    {xmlstreamstart, <<"root">>, []} = receive_msg(),
+    S2 = fxml_stream_rust:change_limits(S1, infinity, 3),
+    _S3 = fxml_stream_rust:parse(S2, <<"<iq><a/><b/><c/></iq>">>),
+    {xmlstreamerror, <<"XML stanza is too big">>} = receive_msg(),
+    ok.
+
+test_stream_max_elements_tuple_arg() ->
+    %% Pass {MaxSize, MaxElements} tuple to new/3.
+    %% max_elements=2 allows 1 element per stanza (matching upstream's <-check).
+    S0 = fxml_stream_rust:new(self(), {infinity, 2}, [no_gen_server]),
+    S1 = fxml_stream_rust:parse(S0, <<"<root>">>),
+    {xmlstreamstart, <<"root">>, []} = receive_msg(),
+    %% Single-element stanza is permitted
+    S2 = fxml_stream_rust:parse(S1, <<"<ping/>">>),
+    {xmlstreamelement, {xmlel, <<"ping">>, [], []}} = receive_msg(),
+    %% Two-element stanza trips the limit
+    _S3 = fxml_stream_rust:parse(S2, <<"<iq><query/></iq>">>),
+    {xmlstreamerror, <<"XML stanza is too big">>} = receive_msg(),
+    ok.
+
+test_stream_change_limits() ->
+    %% Tight limit rejects, then a runtime relaxation lets the same shape through
+    S0 = fxml_stream_rust:new(self(), {infinity, 2}, [no_gen_server]),
+    S1 = fxml_stream_rust:parse(S0, <<"<root>">>),
+    {xmlstreamstart, <<"root">>, []} = receive_msg(),
+    _S2 = fxml_stream_rust:parse(S1, <<"<iq><query/></iq>">>),
+    {xmlstreamerror, <<"XML stanza is too big">>} = receive_msg(),
+    %% Relax the limit and verify the same stanza now succeeds (after reset)
+    S3 = fxml_stream_rust:reset(S1),
+    S4 = fxml_stream_rust:parse(S3, <<"<root>">>),
+    {xmlstreamstart, <<"root">>, []} = receive_msg(),
+    S5 = fxml_stream_rust:change_limits(S4, infinity, infinity),
+    _S6 = fxml_stream_rust:parse(S5, <<"<iq><query/></iq>">>),
+    {xmlstreamelement, {xmlel, <<"iq">>, [], [{xmlel, <<"query">>, [], []}]}} = receive_msg(),
     ok.
 
 test_stream_close() ->

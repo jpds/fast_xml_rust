@@ -34,9 +34,9 @@ fn load(env: Env, _: Term) -> bool {
 }
 
 #[rustler::nif(name = "new")]
-fn new2(pid: LocalPid, max_size: Term) -> NifResult<ResourceArc<ParserResource>> {
-    let max = parse_max_size(max_size)?;
-    let state = stream::ParserState::new(pid, max, true);
+fn new2(pid: LocalPid, limits_term: Term) -> NifResult<ResourceArc<ParserResource>> {
+    let (max_size, max_elements) = parse_limits(limits_term)?;
+    let state = stream::ParserState::new(pid, max_size, max_elements, true);
     Ok(ResourceArc::new(ParserResource {
         inner: Mutex::new(state),
     }))
@@ -45,18 +45,29 @@ fn new2(pid: LocalPid, max_size: Term) -> NifResult<ResourceArc<ParserResource>>
 #[rustler::nif(name = "new")]
 fn new3(
     pid: LocalPid,
-    max_size: Term,
+    limits_term: Term,
     options: Vec<Atom>,
 ) -> NifResult<ResourceArc<ParserResource>> {
-    let max = parse_max_size(max_size)?;
+    let (max_size, max_elements) = parse_limits(limits_term)?;
     let gen_server = !options.contains(&atoms::no_gen_server());
-    let state = stream::ParserState::new(pid, max, gen_server);
+    let state = stream::ParserState::new(pid, max_size, max_elements, gen_server);
     Ok(ResourceArc::new(ParserResource {
         inner: Mutex::new(state),
     }))
 }
 
-fn parse_max_size(term: Term) -> NifResult<usize> {
+/// Accepts {MaxSize, MaxElements} tuple, or a bare size (elements unlimited).
+fn parse_limits(term: Term) -> NifResult<(usize, usize)> {
+    if let Ok((size_term, elements_term)) = term.decode::<(Term, Term)>() {
+        let max_size = parse_single_limit(size_term)?;
+        let max_elements = parse_single_limit(elements_term)?;
+        return Ok((max_size, max_elements));
+    }
+    let max_size = parse_single_limit(term)?;
+    Ok((max_size, usize::MAX))
+}
+
+fn parse_single_limit(term: Term) -> NifResult<usize> {
     if let Ok(n) = term.decode::<u64>() {
         Ok(n as usize)
     } else if term.decode::<Atom>().ok() == Some(atoms::infinity()) {
@@ -114,6 +125,21 @@ fn change_callback_pid<'a>(
 
     state.callback_pid = new_pid;
 
+    Ok(resource.clone().encode(env))
+}
+
+#[rustler::nif]
+fn change_limits<'a>(
+    env: Env<'a>,
+    resource: ResourceArc<ParserResource>,
+    max_size_term: Term,
+    max_elements_term: Term,
+) -> NifResult<Term<'a>> {
+    let max_size = parse_single_limit(max_size_term)?;
+    let max_elements = parse_single_limit(max_elements_term)?;
+    let mut state = resource.inner.lock().map_err(|_| rustler::Error::BadArg)?;
+    state.max_size = max_size;
+    state.max_elements = max_elements;
     Ok(resource.clone().encode(env))
 }
 

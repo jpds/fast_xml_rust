@@ -52,24 +52,28 @@ fn send_term_to_pid(caller_env: Env, pid: &LocalPid, build: impl FnOnce(Env) -> 
 pub struct ParserState {
     pub callback_pid: LocalPid,
     pub max_size: usize,
+    pub max_elements: usize,
     pub gen_server: bool,
     buffer: Vec<u8>,
     depth: usize,
     stack: Vec<XmlEl>,
     size: usize,
+    elements_count: usize,
     closed: bool,
 }
 
 impl ParserState {
-    pub fn new(pid: LocalPid, max_size: usize, gen_server: bool) -> Self {
+    pub fn new(pid: LocalPid, max_size: usize, max_elements: usize, gen_server: bool) -> Self {
         ParserState {
             callback_pid: pid,
             max_size,
+            max_elements,
             gen_server,
             buffer: Vec::new(),
             depth: 0,
             stack: Vec::new(),
             size: 0,
+            elements_count: 0,
             closed: false,
         }
     }
@@ -79,6 +83,7 @@ impl ParserState {
         self.depth = 0;
         self.stack.clear();
         self.size = 0;
+        self.elements_count = 0;
     }
 
     pub fn close(&mut self) {
@@ -135,7 +140,15 @@ impl ParserState {
 
                     if self.depth == 1 {
                         self.send_stream_start(env, &name, &attrs);
+                        self.size = 0;
+                        self.elements_count = 0;
                     } else {
+                        self.elements_count += 1;
+                        if self.elements_count >= self.max_elements {
+                            self.send_error(env, b"XML stanza is too big");
+                            self.buffer.clear();
+                            return;
+                        }
                         self.stack.push(XmlEl {
                             name,
                             attrs,
@@ -155,10 +168,13 @@ impl ParserState {
                     if self.depth == 0 {
                         let name = e.name().as_ref().to_vec();
                         self.send_stream_end(env, &name);
+                        self.size = 0;
+                        self.elements_count = 0;
                     } else if self.depth == 1 {
                         if let Some(el) = self.stack.pop() {
                             self.send_stream_element(env, &el);
                             self.size = 0;
+                            self.elements_count = 0;
                         }
                     } else if let Some(el) = self.stack.pop()
                         && let Some(parent) = self.stack.last_mut()
@@ -172,6 +188,8 @@ impl ParserState {
 
                     if self.depth == 1 {
                         self.send_stream_cdata(env, &text);
+                        self.size = 0;
+                        self.elements_count = 0;
                     } else if self.depth > 1
                         && let Some(parent) = self.stack.last_mut()
                     {

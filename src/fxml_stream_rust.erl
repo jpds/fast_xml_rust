@@ -1,6 +1,6 @@
 -module(fxml_stream_rust).
 -export([new/2, new/3, parse/2, parse_element/1,
-         reset/1, close/1, change_callback_pid/2]).
+         reset/1, close/1, change_callback_pid/2, change_limits/3]).
 -on_load(init/0).
 
 init() ->
@@ -14,3 +14,4 @@ parse_element(_Data)        -> erlang:nif_error(nif_not_loaded).
 reset(_State)               -> erlang:nif_error(nif_not_loaded).
 close(_State)               -> erlang:nif_error(nif_not_loaded).
 change_callback_pid(_S, _P) -> erlang:nif_error(nif_not_loaded).
+change_limits(_S, _MaxSize, _MaxElements) -> erlang:nif_error(nif_not_loaded).
